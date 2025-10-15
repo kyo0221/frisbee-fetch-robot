@@ -1,0 +1,21 @@
+launch:
+  ros__parameters:
+    joy: false
+    log_level: 10
+
+/**:  # Wildcard (ここのパラメータは全てのnodeが読める<-名前に注意)
+  ros__parameters:
+    # Linear velocity[m/s], acceleration[m/s^2], deceleration[-m/s^2], jerk[m/s^3]
+    linear_max:
+      vel: 0.5
+      acc: 5.0
+      jer: 0.0
+    # Angular velocity[deg/s], acceleration[deg/s^2], deceleration[-deg/s^2], jerk[deg/s^3]
+    angular_max:
+      vel: 90.0
+      acc: 240.0
+      jer: 0.0
+    tread: 0.6
+    wheelbase: 0.65
+
+    autonomous_flag: false
