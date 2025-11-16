@@ -1,7 +1,9 @@
 import math
-from typing import List, Optional, Sequence, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import rclpy
+from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 from geometry_msgs.msg import PointStamped
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
@@ -14,38 +16,96 @@ from std_msgs.msg import Bool
 ClusterPoint = Tuple[float, float, float, float, float]
 
 
+def _parse_scalar(token: str) -> Any:
+    """Parse a scalar token from the supported YAML subset."""
+    if token and token[0] == token[-1] and token[0] in {'"', "'"}:
+        return token[1:-1]
+
+    lowered = token.lower()
+    if lowered == 'true':
+        return True
+    if lowered == 'false':
+        return False
+
+    try:
+        if '.' in token or 'e' in token.lower():
+            return float(token)
+        return int(token)
+    except ValueError:
+        return token
+
+
+def _parse_simple_yaml(text: str) -> Dict[str, Any]:
+    """Parse a small subset of YAML (dicts with scalar values) without extra dependencies."""
+    result: Dict[str, Any] = {}
+    stack: List[Tuple[Dict[str, Any], int]] = [(result, -1)]
+
+    for raw_line in text.splitlines():
+        if not raw_line.strip() or raw_line.lstrip().startswith('#'):
+            continue
+
+        indent = len(raw_line) - len(raw_line.lstrip(' '))
+        line = raw_line.strip()
+
+        if ':' not in line:
+            raise ValueError(f"Unsupported line '{line}'.")
+
+        key, _, value_part = line.partition(':')
+        key = key.strip()
+        value_part = value_part.strip()
+
+        while indent <= stack[-1][1] and len(stack) > 1:
+            stack.pop()
+
+        current = stack[-1][0]
+
+        if not value_part:
+            new_dict: Dict[str, Any] = {}
+            current[key] = new_dict
+            stack.append((new_dict, indent))
+        else:
+            current[key] = _parse_scalar(value_part)
+
+    return result
+
+
+REQUIRED_PARAMETER_KEYS: Sequence[str] = (
+    'cloud_topic',
+    'min_range',
+    'max_range',
+    'min_height',
+    'max_height',
+    'min_azimuth',
+    'max_azimuth',
+    'min_cluster_points',
+    'max_cluster_points',
+    'min_cluster_width',
+    'max_cluster_width',
+    'max_angle_gap',
+    'max_range_jump',
+    'max_range_std',
+    'max_vertical_span',
+    'max_cluster_radius',
+    'range_jump_ratio',
+    'range_std_ratio',
+    'cluster_radius_ratio',
+    'position_smoothing_alpha',
+    'max_position_step',
+    'max_tracking_velocity',
+    'max_vertical_step',
+    'max_vertical_velocity',
+    'verbose_logging',
+)
+
+
 class FrisbeeDetectorNode(Node):
     """Rule-based detector for a frisbee using 3D LiDAR point clouds."""
 
     def __init__(self) -> None:
         super().__init__('frisbee_detector')
 
-        # Declare configurable parameters with sensible defaults.
-        self.declare_parameter('cloud_topic', '/livox/lidar')
-        self.declare_parameter('min_range', 1.0)
-        self.declare_parameter('max_range', 5.0)
-        self.declare_parameter('min_height', 0.3)
-        self.declare_parameter('max_height', 2.1)
-        self.declare_parameter('min_azimuth', -math.pi / 6.0)
-        self.declare_parameter('max_azimuth', math.pi / 6.0)
-        self.declare_parameter('min_cluster_points', 4)
-        self.declare_parameter('max_cluster_points', 140)
-        self.declare_parameter('min_cluster_width', 0.01)  # radians
-        self.declare_parameter('max_cluster_width', 0.35)  # radians
-        self.declare_parameter('max_angle_gap', 0.07)  # radians between consecutive points
-        self.declare_parameter('max_range_jump', 0.35)  # meters difference between neighbouring points
-        self.declare_parameter('max_range_std', 0.12)  # meters
-        self.declare_parameter('max_vertical_span', 0.18)  # meters
-        self.declare_parameter('max_cluster_radius', 0.35)  # meters (3D radius from centroid)
-        self.declare_parameter('range_jump_ratio', 0.02)  # scales allowed range jump with distance
-        self.declare_parameter('range_std_ratio', 0.015)  # scales allowed radial std with distance
-        self.declare_parameter('cluster_radius_ratio', 0.02)  # scales allowed radius with distance
-        self.declare_parameter('position_smoothing_alpha', 0.7)
-        self.declare_parameter('max_position_step', 3.5)  # meters per update (horizontal plane)
-        self.declare_parameter('max_tracking_velocity', 18.0)  # meters per second (horizontal plane)
-        self.declare_parameter('max_vertical_step', 2.5)  # meters per update
-        self.declare_parameter('max_vertical_velocity', 15.0)  # meters per second
-        self.declare_parameter('verbose_logging', False)
+        # Declare configurable parameters loaded from the YAML configuration file.
+        self._declare_parameters_from_yaml()
 
         self._apply_parameter_values()
 
@@ -66,6 +126,76 @@ class FrisbeeDetectorNode(Node):
         self.add_on_set_parameters_callback(self._on_parameters_set)
 
         self.get_logger().info(f"Frisbee detector listening on '{cloud_topic}'.")
+
+    def _declare_parameters_from_yaml(self) -> None:
+        yaml_parameters = self._load_parameters_from_yaml()
+
+        for key in REQUIRED_PARAMETER_KEYS:
+            if key not in yaml_parameters:
+                message = f"Parameter '{key}' not found in YAML configuration."
+                self.get_logger().error(message)
+                raise RuntimeError(message)
+            self.declare_parameter(key, yaml_parameters[key])
+
+        for key, value in yaml_parameters.items():
+            if key in REQUIRED_PARAMETER_KEYS:
+                continue
+            self.declare_parameter(key, value)
+
+    def _load_parameters_from_yaml(self) -> Dict[str, Any]:
+        file_path = self._resolve_parameters_file_path()
+        if file_path is None:
+            message = "Parameter file could not be resolved."
+            self.get_logger().error(message)
+            raise RuntimeError(message)
+
+        try:
+            with file_path.open('r', encoding='utf-8') as stream:
+                content = _parse_simple_yaml(stream.read())
+        except (OSError, ValueError) as exc:
+            message = f"Failed to read parameter file '{file_path}': {exc}"
+            self.get_logger().error(message)
+            raise RuntimeError(message) from exc
+
+        ros_parameters: Dict[str, Any] = {}
+        if isinstance(content, dict):
+            node_section = content.get(self.get_name(), {})
+            if isinstance(node_section, dict):
+                ros_parameters = node_section.get('ros__parameters', {}) or {}
+            if not ros_parameters and '/**' in content:
+                wildcard_section = content.get('/**', {})
+                if isinstance(wildcard_section, dict):
+                    ros_parameters = wildcard_section.get('ros__parameters', {}) or {}
+
+        if not isinstance(ros_parameters, dict) or not ros_parameters:
+            message = (
+                f"No parameters found for node '{self.get_name()}' in '{file_path}'. "
+                "Ensure the YAML file contains a 'ros__parameters' section."
+            )
+            self.get_logger().error(message)
+            raise RuntimeError(message)
+
+        return ros_parameters
+
+    def _resolve_parameters_file_path(self) -> Optional[Path]:
+        local_path = Path(__file__).resolve().parent / 'config' / 'frisbee_detector.yaml'
+        if local_path.is_file():
+            return local_path
+
+        try:
+            share_dir = Path(get_package_share_directory('frisbee_detector'))
+        except PackageNotFoundError:
+            self.get_logger().error(
+                "Could not locate package share directory for 'frisbee_detector'."
+            )
+            return None
+
+        share_path = share_dir / 'config' / 'frisbee_detector.yaml'
+        if share_path.is_file():
+            return share_path
+
+        self.get_logger().error(f"Parameter file not found at '{share_path}'.")
+        return None
 
     def _apply_parameter_values(self) -> None:
         self.cloud_topic = str(self.get_parameter('cloud_topic').value)
