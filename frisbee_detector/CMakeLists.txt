@@ -24,12 +24,22 @@ ament_target_dependencies(
   ament_index_cpp
 )
 
+add_executable(frisbee_chaser_node src/frisbee_chaser_node.cpp)
+ament_target_dependencies(
+  frisbee_chaser_node
+  rclcpp
+  geometry_msgs
+  std_msgs
+)
+
 target_include_directories(frisbee_detector_node PRIVATE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
 
-install(TARGETS frisbee_detector_node
+install(TARGETS
+  frisbee_detector_node
+  frisbee_chaser_node
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY
