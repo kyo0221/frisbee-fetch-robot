@@ -13,7 +13,10 @@ find_package(std_msgs REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 
-add_executable(frisbee_detector_node src/frisbee_detector_node.cpp)
+add_executable(frisbee_detector_node
+  src/frisbee_detector_node.cpp
+  src/detector_core.cpp
+)
 ament_target_dependencies(
   frisbee_detector_node
   rclcpp
@@ -37,10 +40,18 @@ target_include_directories(frisbee_detector_node PRIVATE
   $<INSTALL_INTERFACE:include>
 )
 
+target_include_directories(frisbee_chaser_node PRIVATE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
 install(TARGETS
   frisbee_detector_node
   frisbee_chaser_node
   DESTINATION lib/${PROJECT_NAME})
+
+install(DIRECTORY include/
+  DESTINATION include)
 
 install(DIRECTORY
   config

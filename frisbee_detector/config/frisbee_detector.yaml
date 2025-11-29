@@ -16,12 +16,10 @@ frisbee_detector:
     max_range_std: 0.12
     max_vertical_span: 0.18
     max_cluster_radius: 0.5
-    range_jump_ratio: 0.02
-    range_std_ratio: 0.015
-    cluster_radius_ratio: 0.5
     position_smoothing_alpha: 0.7
     max_position_step: 5.5
     max_tracking_velocity: 20.0
     max_vertical_step: 5.5
     max_vertical_velocity: 15.0
+    voxel_size: 0.05
     verbose_logging: false
