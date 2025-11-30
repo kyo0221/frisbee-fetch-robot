@@ -1,0 +1,25 @@
+frisbee_detector:
+  ros__parameters:
+    cloud_topic: "/livox/lidar"
+    min_range: -5.0
+    max_range: 5.0
+    min_height: -5.0
+    max_height: 2.3
+    min_azimuth: 2.70526
+    max_azimuth: 3.57792
+    min_cluster_points: 4
+    max_cluster_points: 100
+    min_cluster_width: 0.001
+    max_cluster_width: 0.55
+    max_angle_gap: 0.07
+    max_range_jump: 0.35
+    max_range_std: 0.12
+    max_vertical_span: 0.18
+    max_cluster_radius: 0.5
+    position_smoothing_alpha: 0.7
+    max_position_step: 5.5
+    max_tracking_velocity: 20.0
+    max_vertical_step: 5.5
+    max_vertical_velocity: 15.0
+    voxel_size: 0.05
+    verbose_logging: false
